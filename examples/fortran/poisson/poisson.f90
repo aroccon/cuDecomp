@@ -339,7 +339,7 @@ program main
           ig = xoff + il
           do k = 1, nz
              k2 = kx_d(ig)**2 + ky_d(jg)**2 + kz_d(k)**2
-             phi3d(k,il,jl) = -phi3d(k,il,jl)/k2/(nx*ny*nz)
+             phi3d(k,il,jl) = -phi3d(k,il,jl)/k2/(int(nx,8)*int(ny,8)*int(nz,8))          
           enddo
        enddo
     enddo

@@ -1,0 +1,28 @@
+# Compiler
+FC = mpif90
+LD = $(FC)
+
+# Paths (Modify if necessary)
+CUDECOMP_DIR = /leonardo_scratch/large/userexternal/aroccon0/MHIT36_cuDecomp/cuDecomp/build
+CUDA_DIR = /leonardo/prod/opt/compilers/cuda/12.3/none/
+
+# Compiler and Linker Flags
+FFLAGS = -cpp -Mfree -cuda -I$(CUDECOMP_DIR)/include
+LIBS = -L$(CUDECOMP_DIR)/lib -L$(CUDA_DIR)/lib64 -lcudecomp_fort -lcudecomp -cudalib=cufft 
+
+# Source and Object Files
+OBJS = poisson.f90
+
+# Output Executable
+EXEC = poisson
+
+$(EXEC):	$(OBJS)
+	$(LD) $(FFLAGS) $(OBJS) $(LIBS) -o $@
+
+clean:
+	$(RM)  $(EXEC)
+
+.SUFFIXES: .o
+
+.f90.o:
+	$(FC)  -c $(FFLAGS) $<

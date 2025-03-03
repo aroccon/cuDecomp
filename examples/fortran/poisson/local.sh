@@ -1,11 +1,12 @@
 NVARCH=Linux_x86_64; export NVARCH
 NVCOMPILERS=/opt/nvidia/hpc_sdk; export NVCOMPILERS
-MANPATH=$MANPATH:$NVCOMPILERS/$NVARCH/23.7/compilers/man; export MANPATH
-PATH=$NVCOMPILERS/$NVARCH/23.7/compilers/bin:$PATH; export PATH
-export PATH=$NVCOMPILERS/$NVARCH/23.7/comm_libs/mpi/bin:$PATH
-export MANPATH=$MANPATH:$NVCOMPILERS/$NVARCH/23.7/comm_libs/mpi/man
-LD_LIBRARY_PATH=/home/milton/MHIT36_cuDecomp/cuDecomp-main/build/lib
+MANPATH=$MANPATH:$NVCOMPILERS/$NVARCH/24.3/compilers/man; export MANPATH
+PATH=$NVCOMPILERS/$NVARCH/24.3/compilers/bin:$PATH; export PATH
+export PATH=$NVCOMPILERS/$NVARCH/24.3/comm_libs/mpi/bin:$PATH
+export MANPATH=$MANPATH:$NVCOMPILERS/$NVARCH/24.3/comm_libs/mpi/man
+LD_LIBRARY_PATH=/home/milton/MHIT36_cuDecomp/cuDecomp/build/lib
 #LD_LIBRARY_PATH=/home/milton/MHIT36_cuDecomp/cuDecomp-main/build/include
+cp Makefile_local Makefile
 make clean
 make
 mpirun -np 2 ./poisson 

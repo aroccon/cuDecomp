@@ -2,15 +2,15 @@
 FC = mpif90
 
 # Paths (Modify if necessary)
-CUDECOMP_DIR = /home/milton/MHIT36_cuDecomp/cuDecomp-main/build/
+CUDECOMP_DIR = /home/milton/MHIT36_cuDecomp/cuDecomp/build/
 
 # Compiler and Linker Flags
-FFLAGS = -cpp -Mfree -cuda -I$(CUDECOMP_DIR)/include
+FFLAGS = -gpu=managed -acc -cpp -Mfree -cuda -I$(CUDECOMP_DIR)/include
 LDFLAGS = -L$(CUDECOMP_DIR)/lib -L/usr/local/cuda/lib64
 LIBS = -lcudecomp_fort -lcudecomp -cudalib=cufft -cuda 
 
 # Source and Object Files
-SRCS = poisson.f90
+SRCS = poisson_opt.f90
 OBJS = $(SRCS:.f90=.o)
 
 # Output Executable

@@ -7,6 +7,7 @@ export MANPATH=$MANPATH:$NVCOMPILERS/$NVARCH/24.3/comm_libs/mpi/man
 LD_LIBRARY_PATH=/home/milton/MHIT36_cuDecomp/cuDecomp/build/lib
 #LD_LIBRARY_PATH=/home/milton/MHIT36_cuDecomp/cuDecomp-main/build/include
 cp Makefile_local Makefile
+rm *.dat
 make clean
 make
 mpirun -np 2 ./poisson 

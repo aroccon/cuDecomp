@@ -1,30 +1,6 @@
-! SPDX-FileCopyrightText: Copyright (c) 2022 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-! SPDX-License-Identifier: BSD-3-Clause
-!
-! Redistribution and use in source and binary forms, with or without
-! modification, are permitted provided that the following conditions are met:
-!
-! 1. Redistributions of source code must retain the above copyright notice, this
-!    list of conditions and the following disclaimer.
-!
-! 2. Redistributions in binary form must reproduce the above copyright notice,
-!    this list of conditions and the following disclaimer in the documentation
-!    and/or other materials provided with the distribution.
-!
-! 3. Neither the name of the copyright holder nor the names of its
-!    contributors may be used to endorse or promote products derived from
-!    this software without specific prior written permission.
-!
-! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-! AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-! IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-! DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-! FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-! DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-! SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-! CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-! OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-! OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+! Optimized verison compared to the stanard one as it use D2Z in the first step
+! This avoid transpostions with nx x ny x nz complex and instead use nx/2+1 x ny x nz
+
 
 #define CHECK_CUDECOMP_EXIT(f) if (f /= CUDECOMP_RESULT_SUCCESS) call exit(1)
 !#define CHECK_CUDECOMP_EXIT(f) if (f /= CUDECOMP_RESULT_SUCCESS) exit(1)
@@ -35,9 +11,9 @@
 !
 ! where
 !
-!   phi(x,y,z) = sin(2*pi*Mx*x)*sin(2*pi*My*y)*sin(2*pi*Mz*z)
+!   phi(x,y,z) = sin(Mx*x)*sin(My*y)*sin(Mz*z)
 !
-! on domain 0 <= x <= 1, 0 <= y <= 1
+! on domain 0 <= x <= 2*pi, 0 <= y <= 2*pi, 0 <= z <= 2*pi
 
 program main
   use cudafor
@@ -56,9 +32,11 @@ program main
   ! grid size
   real(8), parameter :: Lx = 1.0, Ly = 1.0, Lz = 1.0
   ! modes for phi
-  integer, parameter :: Mx = 4, My = 2, Mz = 2
+  integer, parameter :: Mx = 1, My = 2, Mz = 1
   real(8), parameter :: twopi = 8.0_8*atan(1.0_8)
   real(8) :: err, maxErr = -1.0, times, timef
+  character(len=40) :: namefile
+
 
   ! grid
   real(8), allocatable :: x(:)
@@ -68,6 +46,7 @@ program main
   real(8), device, allocatable :: kx_d(:)
 
   real(8), allocatable :: phi(:), ua(:,:,:), rhsp(:,:,:), p(:,:,:)
+  !complex(8), allocatable :: rhspc(:,:,:)
   complex(8), device, allocatable :: phi_d(:)
   complex(8), pointer, device, contiguous :: work_d(:)
 
@@ -116,8 +95,8 @@ program main
   nx = 64
   ny = nx
   nz = nx
-  pr = 1
-  pc = 2
+  pr = 2
+  pc = 1
   comm_backend = CUDECOMP_TRANSPOSE_COMM_MPI_P2P
 
 
@@ -128,7 +107,7 @@ program main
   CHECK_CUDECOMP_EXIT(cudecompGridDescConfigSetDefaults(config))
   pdims = [pr, pc]
   config%pdims = pdims
-  gdims = [ (nx/2+1), ny, nz]
+  gdims = [ nx/2+1, ny, nz]
   config%gdims = gdims
   config%transpose_comm_backend = comm_backend
   config%transpose_axis_contiguous = .true.
@@ -165,11 +144,11 @@ program main
 
   batchSize = piX%shape(2)*piX%shape(3)
   status = cufftPlan1D(planXF, nx, CUFFT_D2Z, batchSize)
-  if (status /= CUFFT_SUCCESS) write(*,*) rank, ': Error in creating X plan'
+  if (status /= CUFFT_SUCCESS) write(*,*) rank, ': Error in creating X-forward plan'
 
   batchSize = piX%shape(2)*piX%shape(3)
   status = cufftPlan1D(planXB, nx, CUFFT_Z2D, batchSize)
-  if (status /= CUFFT_SUCCESS) write(*,*) rank, ': Error in creating X plan'
+  if (status /= CUFFT_SUCCESS) write(*,*) rank, ': Error in creating X-backward plan'
 
   batchSize = piY%shape(2)*piY%shape(3)
   status = cufftPlan1D(planY, ny, CUFFT_Z2Z, batchSize)
@@ -184,19 +163,19 @@ program main
 
   allocate(x(nx))
 
-  hx = Lx/nx
+  hx = twopi/nx
   do i = 1, nx
      x(i) = hx*i
   enddo
   ! Wavenumbers
 
-  allocate(kx(nx/2+1))
+  allocate(kx(nx))
 
   do i = 1, nx/2
-     kx(i) = (i-1)*(twoPi/Lx)
+     kx(i) = (i-1)
   enddo
   do i = nx/2+1, nx
-     kx(i) = (i-1-nx)*(twoPi/Lx)
+     kx(i) = (i-1-nx)
   enddo
   allocate(kx_d, source=kx)
 
@@ -206,7 +185,9 @@ program main
   allocate(phi_d, mold=phi)
   allocate(ua(nx, piX%shape(2), piX%shape(3)))
   allocate(rhsp(nx, piX%shape(2), piX%shape(3)))
+  !allocate(rhspc(nx, piX%shape(2), piX%shape(3)))
   allocate(p(nx, piX%shape(2), piX%shape(3)))
+
 
   CHECK_CUDECOMP_EXIT(cudecompMalloc(handle, grid_desc, work_d, nElemWork))
 
@@ -216,17 +197,19 @@ program main
        do jl = 1, piX%shape(2)
           jg = piX%lo(2) + jl - 1
           do i = 1, nx
-             rhsp(i,jl,kl) = sin(twoPi*Mx*x(i))*sin(twoPi*My*x(jg))*sin(twoPi*Mz*x(kg))
-             ua(i,jl,kl) = -rhsp(i,jl,kl)/(twoPi**2*(Mx**2 + My**2 + Mz**2))
+             rhsp(i,jl,kl) = sin(Mx*x(i))*sin(My*x(jg))*sin(Mz*x(kg))
+             !rhspc(i,jl,kl) = cmplx(rhsp(i,jl,kl),0.d0)
+             ua(i,jl,kl) = -rhsp(i,jl,kl)/(Mx**2 + My**2 + Mz**2)
           enddo
        enddo
   enddo
 
-
+   write(namefile,'(a,i3.3,a)') 'rhsp_',rank,'.dat'
+   open(unit=55,file=namefile,form='unformatted',position='append',access='stream',status='new')
+   write(55) rhsp
+   close(55)
 
   call cpu_time(times)
-
-
 
   ! phi(x,y,z) -> phi(kx,y,z)
   !$acc host_data use_device(rhsp)
@@ -273,8 +256,9 @@ program main
           jg = yoff + jl
           ig = xoff + il
           do k = 1, nz
-             k2 = kx_d(ig)**2 + kx_d(jg)**2 + kx_d(k)**2
-             phi3d(k,il,jl) = -phi3d(k,il,jl)/k2/(int(nx,8)*int(ny,8)*int(nz,8))          
+              k2 = kx_d(ig)**2 + kx_d(jg)**2 + kx_d(k)**2
+              !phi3d(k,il,jl) = phi3d(k,il,jl)/(int(nx,8)*int(ny,8)*int(nz,8))    
+              phi3d(k,il,jl) = -phi3d(k,il,jl)/k2/(int(nx,8)*int(ny,8)*int(nz,8))
           enddo
        enddo
     enddo
@@ -301,29 +285,37 @@ program main
   if (status /= CUFFT_SUCCESS) write(*,*) 'X inverse error: ', status
   !$acc end host_data
 
-  !phi = phi_d
-
-  call cpu_time(timef)
-  if (rank.eq.0)  print '(" Time elapsed = ",f6.1," ms")',1000*(timef-times)
-
+  err=0.d0
+  maxErr=-1.d0
+  !$acc kernels
     do kl = 1, piX%shape(3)
        do jl = 1, piX%shape(2)
           do i = 1, nx
              err = abs(ua(i,jl,kl)-p(i,jl,kl))
+             !rhsp(i,jl,kl)=real(rhspc(i,jl,kl))
              if (err > maxErr) maxErr = err
           enddo
        enddo
     enddo
+    !$acc end kernels
 
-    !write(*,*) "here-318"
+    write(namefile,'(a,i3.3,a)') 'rhspo_',rank,'.dat'
+    open(unit=55,file=namefile,form='unformatted',position='append',access='stream',status='new')
+    write(55) p
+    close(55)
+
+    write(namefile,'(a,i3.3,a)') 'ua_',rank,'.dat'
+    open(unit=55,file=namefile,form='unformatted',position='append',access='stream',status='new')
+    write(55) ua
+    close(55)
 
 
     write(*,"('[', i0, '] Max Error: ', e12.6)") rank, maxErr
 
   ! cleanup
 
-  status = cufftDestroy(planX)
-  if (status /= CUFFT_SUCCESS) write(*,*) 'X plan destroy: ', status
+  !status = cufftDestroy(planX)
+  !if (status /= CUFFT_SUCCESS) write(*,*) 'X plan destroy: ', status
   status = cufftDestroy(planXF)
   if (status /= CUFFT_SUCCESS) write(*,*) 'XF plan destroy: ', status
   status = cufftDestroy(planXB)
